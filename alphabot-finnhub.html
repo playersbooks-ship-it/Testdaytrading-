@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AlphaBot — Paper Trading</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #080c10;
+    --surface: #0e1420;
+    --surface2: #141c2a;
+    --border: #1e2d42;
+    --accent: #00d4aa;
+    --accent2: #0099ff;
+    --bull: #00e676;
+    --bear: #ff3d57;
+    --warn: #ffb300;
+    --text: #e8f0fe;
+    --muted: #5a7190;
+    --font-display: 'Syne', sans-serif;
+    --font-mono: 'Space Mono', monospace;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:var(--font-mono); min-height:100vh; overflow-x:hidden; }
+  body::before {
+    content:''; position:fixed; inset:0;
+    background-image: linear-gradient(rgba(0,212,170,0.03) 1px,transparent 1px), linear-gradient(90deg,rgba(0,212,170,0.03) 1px,transparent 1px);
+    background-size:40px 40px; pointer-events:none; z-index:0;
+  }
+  .wrap { position:relative; z-index:1; max-width:1200px; margin:0 auto; padding:24px 20px; }
+  header { display:flex; align-items:center; justify-content:space-between; margin-bottom:28px; padding-bottom:20px; border-bottom:1px solid var(--border); }
+  .logo { font-family:var(--font-display); font-size:1.6rem; font-weight:800; letter-spacing:-0.02em; }
+  .logo span { color:var(--accent); }
+  .status-pill { display:flex; align-items:center; gap:8px; font-size:0.72rem; letter-spacing:0.1em; text-transform:uppercase; color:var(--muted); background:var(--surface); border:1px solid var(--border); padding:6px 14px; border-radius:20px; }
+  .dot { width:7px; height:7px; border-radius:50%; background:var(--muted); transition:background 0.3s; }
+  .dot.live { background:var(--bull); box-shadow:0 0 8px var(--bull); animation:pulse 2s infinite; }
+  .dot.warn { background:var(--warn); box-shadow:0 0 8px var(--warn); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  .control-bar { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:20px 24px; margin-bottom:24px; display:flex; gap:16px; align-items:flex-end; flex-wrap:wrap; }
+  .input-group { display:flex; flex-direction:column; gap:6px; }
+  .input-group label { font-size:0.62rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.1em; }
+  .input-group select, .input-group input { background:var(--bg); border:1px solid var(--border); color:var(--text); font-family:var(--font-mono); font-size:0.8rem; padding:9px 14px; border-radius:8px; outline:none; transition:border-color 0.2s; cursor:pointer; }
+  .input-group select:focus, .input-group input:focus { border-color:var(--accent); }
+  .input-group select option { background:var(--surface2); }
+
+  .btn { padding:9px 20px; border:none; border-radius:8px; font-family:var(--font-mono); font-size:0.78rem; cursor:pointer; transition:all 0.2s; white-space:nowrap; font-weight:700; letter-spacing:0.05em; }
+  .btn-primary { background:var(--accent); color:#000; }
+  .btn-primary:hover { background:#00ffcc; transform:translateY(-1px); }
+  .btn-primary:disabled { background:var(--muted); cursor:not-allowed; transform:none; opacity:0.5; }
+  .btn-start { background:linear-gradient(135deg,var(--bull),#00b248); color:#000; }
+  .btn-start:hover { filter:brightness(1.1); transform:translateY(-1px); }
+  .btn-start:disabled { opacity:0.4; cursor:not-allowed; transform:none; filter:none; }
+  .btn-stop { background:transparent; border:1px solid var(--bear); color:var(--bear); }
+  .btn-stop:hover { background:var(--bear); color:#fff; }
+  .btn-stop:disabled { opacity:0.3; cursor:not-allowed; }
+
+  .balance-bar { background:linear-gradient(135deg,rgba(0,212,170,0.08),rgba(0,153,255,0.05)); border:1px solid rgba(0,212,170,0.2); border-radius:12px; padding:16px 24px; margin-bottom:24px; display:flex; align-items:center; gap:24px; flex-wrap:wrap; }
+  .balance-label { font-size:0.62rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.1em; margin-bottom:4px; }
+  .balance-value { font-family:var(--font-display); font-size:1.3rem; font-weight:800; }
+  .balance-divider { width:1px; height:40px; background:var(--border); }
+
+  .stats-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:24px; }
+  .stat-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:18px; position:relative; overflow:hidden; }
+  .stat-card::after { content:''; position:absolute; top:0; left:0; right:0; height:2px; }
+  .stat-card.c1::after { background:var(--accent2); }
+  .stat-card.c2::after { background:var(--bull); }
+  .stat-card.c3::after { background:var(--accent); }
+  .stat-card.c4::after { background:var(--warn); }
+  .stat-label { font-size:0.62rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.12em; margin-bottom:8px; }
+  .stat-value { font-family:var(--font-display); font-size:1.4rem; font-weight:800; line-height:1; }
+  .stat-sub { font-size:0.65rem; color:var(--muted); margin-top:5px; }
+  .up { color:var(--bull); } .down { color:var(--bear); }
+
+  .main-grid { display:grid; grid-template-columns:1fr 320px; gap:20px; margin-bottom:24px; }
+  .chart-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:20px; }
+  .card-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+  .card-title { font-family:var(--font-display); font-size:0.85rem; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; color:var(--accent); }
+  .chart-wrap { position:relative; height:280px; }
+
+  .bot-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:20px; display:flex; flex-direction:column; gap:14px; }
+  .strategy-info { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:14px; }
+  .strategy-info h4 { font-size:0.7rem; color:var(--accent); text-transform:uppercase; letter-spacing:0.1em; margin-bottom:10px; }
+  .s-row { display:flex; justify-content:space-between; font-size:0.72rem; color:var(--muted); margin-bottom:6px; }
+  .s-row span:last-child { color:var(--text); }
+
+  .signal-box { background:var(--surface2); border-radius:8px; padding:16px; text-align:center; border:1px solid var(--border); }
+  .signal-label { font-size:0.65rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.1em; margin-bottom:8px; }
+  .signal-value { font-family:var(--font-display); font-size:2rem; font-weight:800; letter-spacing:0.05em; }
+  .signal-value.BUY { color:var(--bull); }
+  .signal-value.SELL { color:var(--bear); }
+  .signal-value.HOLD { color:var(--warn); }
+  .signal-sub { font-size:0.65rem; color:var(--muted); margin-top:4px; }
+
+  .log-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:20px; }
+  .trades-table { width:100%; border-collapse:collapse; font-size:0.72rem; }
+  .trades-table th { text-align:left; color:var(--muted); font-size:0.62rem; text-transform:uppercase; letter-spacing:0.1em; padding:0 10px 10px; border-bottom:1px solid var(--border); }
+  .trades-table td { padding:10px; border-bottom:1px solid rgba(30,45,66,0.5); }
+  .trades-table tbody tr:hover { background:var(--surface2); }
+  .trades-table tr:last-child td { border-bottom:none; }
+  .tag { display:inline-block; padding:2px 8px; border-radius:4px; font-size:0.65rem; font-weight:700; letter-spacing:0.08em; }
+  .tag.buy { background:rgba(0,230,118,0.15); color:var(--bull); border:1px solid rgba(0,230,118,0.3); }
+  .tag.sell { background:rgba(255,61,87,0.15); color:var(--bear); border:1px solid rgba(255,61,87,0.3); }
+  .table-wrap { max-height:220px; overflow-y:auto; }
+  .table-wrap::-webkit-scrollbar { width:4px; }
+  .table-wrap::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+  .empty-state { text-align:center; color:var(--muted); font-size:0.75rem; padding:30px; }
+
+  .ema-badges { display:flex; gap:6px; }
+  .ema-badge { font-size:0.62rem; padding:3px 7px; border-radius:4px; border:1px solid; }
+  .ema-badge.fast { border-color:var(--accent); color:var(--accent); }
+  .ema-badge.slow { border-color:var(--accent2); color:var(--accent2); }
+  .position-chip { font-size:0.68rem; padding:4px 10px; border-radius:4px; border:1px solid var(--border); color:var(--muted); display:inline-flex; align-items:center; gap:5px; }
+  .position-chip.long { border-color:var(--bull); color:var(--bull); background:rgba(0,230,118,0.05); }
+
+  .spinner { display:inline-block; width:12px; height:12px; border:2px solid rgba(0,212,170,0.3); border-top-color:var(--accent); border-radius:50%; animation:spin 0.7s linear infinite; vertical-align:middle; margin-right:6px; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .notice { font-size:0.68rem; color:var(--muted); background:var(--surface2); border:1px solid var(--border); border-radius:6px; padding:8px 14px; }
+
+  @media (max-width:900px) { .stats-grid { grid-template-columns:1fr 1fr; } .main-grid { grid-template-columns:1fr; } .control-bar { flex-direction:column; align-items:stretch; } }
+  @media (max-width:500px) { .balance-bar { flex-direction:column; gap:12px; } .balance-divider { display:none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo">Alpha<span>Bot</span></div>
+    <div style="display:flex;gap:10px;align-items:center">
+      <div class="position-chip" id="posChip">⬜ Žiadna pozícia</div>
+      <div class="status-pill">
+        <div class="dot" id="statusDot"></div>
+        <span id="statusText">OFFLINE</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="control-bar">
+    <div class="input-group">
+      <label>Akcia / Symbol</label>
+      <select id="symbolSel">
+        <option value="AAPL">AAPL — Apple</option>
+        <option value="TSLA">TSLA — Tesla</option>
+        <option value="NVDA">NVDA — NVIDIA</option>
+        <option value="MSFT">MSFT — Microsoft</option>
+        <option value="AMZN">AMZN — Amazon</option>
+        <option value="GOOGL">GOOGL — Google</option>
+        <option value="META">META — Meta</option>
+        <option value="SPY">SPY — S&P 500 ETF</option>
+        <option value="QQQ">QQQ — Nasdaq ETF</option>
+      </select>
+    </div>
+    <div class="input-group">
+      <label>Interval</label>
+      <select id="intervalSel">
+        <option value="5">5 min</option>
+        <option value="15">15 min</option>
+        <option value="30">30 min</option>
+        <option value="60" selected>1 hodina</option>
+        <option value="D">1 deň</option>
+      </select>
+    </div>
+    <div class="input-group">
+      <label>Virtuálny kapitál ($)</label>
+      <input type="number" id="capitalInput" value="10000" min="100" step="100" style="width:140px" />
+    </div>
+    <div class="input-group">
+      <label>Veľkosť pozície</label>
+      <select id="posSize">
+        <option value="0.1">10% kapitálu</option>
+        <option value="0.25">25% kapitálu</option>
+        <option value="0.5">50% kapitálu</option>
+        <option value="1">100% kapitálu</option>
+      </select>
+    </div>
+    <button class="btn btn-primary" id="loadBtn" onclick="loadData()">Načítať dáta</button>
+    <button class="btn btn-start" id="startBtn" onclick="startBot()" disabled>▶ Spustiť bot</button>
+    <button class="btn btn-stop" id="stopBtn" onclick="stopBot()" disabled>■ Stop</button>
+  </div>
+
+  <div class="balance-bar">
+    <div>
+      <div class="balance-label">Virtuálne portfólio</div>
+      <div class="balance-value" id="totalVal">$10,000.00</div>
+    </div>
+    <div class="balance-divider"></div>
+    <div>
+      <div class="balance-label">Hotovosť</div>
+      <div class="balance-value" id="cashVal" style="color:var(--accent2)">$10,000.00</div>
+    </div>
+    <div class="balance-divider"></div>
+    <div>
+      <div class="balance-label">Hodnota pozície</div>
+      <div class="balance-value" id="posVal">$0.00</div>
+    </div>
+    <div class="balance-divider"></div>
+    <div>
+      <div class="balance-label">Celkový P&L</div>
+      <div class="balance-value" id="totalPnl">$0.00</div>
+    </div>
+    <div style="margin-left:auto">
+      <button class="btn" style="background:transparent;border:1px solid var(--border);color:var(--muted);font-size:0.68rem;padding:6px 14px" onclick="resetAccount()">↺ Reset</button>
+    </div>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-card c1">
+      <div class="stat-label">Aktuálna cena</div>
+      <div class="stat-value" id="curPrice">—</div>
+      <div class="stat-sub" id="priceChg">Čakám na dáta...</div>
+    </div>
+    <div class="stat-card c2">
+      <div class="stat-label">EMA 9 / EMA 21</div>
+      <div class="stat-value" id="emaVals" style="font-size:1rem">— / —</div>
+      <div class="stat-sub" id="emaCross">—</div>
+    </div>
+    <div class="stat-card c3">
+      <div class="stat-label">Obchody celkom</div>
+      <div class="stat-value" id="tradeTotal">0</div>
+      <div class="stat-sub" id="tradeSplit">0 BUY · 0 SELL</div>
+    </div>
+    <div class="stat-card c4">
+      <div class="stat-label">Win rate</div>
+      <div class="stat-value" id="winRate">—</div>
+      <div class="stat-sub" id="avgPnl">Priem. P&L: —</div>
+    </div>
+  </div>
+
+  <div class="main-grid">
+    <div class="chart-card">
+      <div class="card-header">
+        <div class="card-title" id="chartTitle">Graf ceny</div>
+        <div class="ema-badges">
+          <div class="ema-badge fast">EMA 9</div>
+          <div class="ema-badge slow">EMA 21</div>
+        </div>
+      </div>
+      <div class="chart-wrap"><canvas id="priceChart"></canvas></div>
+    </div>
+
+    <div class="bot-card">
+      <div class="card-title">🤖 Bot Kontrola</div>
+      <div class="strategy-info">
+        <h4>Stratégia: EMA Crossover</h4>
+        <div class="s-row"><span>Rýchla EMA</span><span>9 periód</span></div>
+        <div class="s-row"><span>Pomalá EMA</span><span>21 periód</span></div>
+        <div class="s-row"><span>BUY</span><span>EMA9 > EMA21 ↑</span></div>
+        <div class="s-row"><span>SELL</span><span>EMA9 < EMA21 ↓</span></div>
+        <div class="s-row"><span>Zdroj dát</span><span style="color:var(--accent)">Finnhub</span></div>
+        <div class="s-row"><span>Refresh</span><span>60 sek</span></div>
+      </div>
+      <div class="signal-box">
+        <div class="signal-label">Aktuálny signál</div>
+        <div class="signal-value HOLD" id="sigVal">—</div>
+        <div class="signal-sub" id="sigReason">Načítaj dáta pre signál</div>
+      </div>
+      <div class="notice">⚠️ Free Finnhub: historické dáta len 1 rok. Všetky obchody sú <strong>virtuálne</strong>.</div>
+    </div>
+  </div>
+
+  <div class="log-card">
+    <div class="card-header">
+      <div class="card-title">📋 História obchodov</div>
+      <button class="btn" style="background:transparent;border:1px solid var(--bear);color:var(--bear);padding:4px 12px;font-size:0.68rem" onclick="clearTrades()">Vymazať</button>
+    </div>
+    <div class="table-wrap">
+      <table class="trades-table">
+        <thead>
+          <tr><th>#</th><th>Čas</th><th>Symbol</th><th>Typ</th><th>Cena</th><th>Qty</th><th>Hodnota</th><th>P&L</th></tr>
+        </thead>
+        <tbody id="tradesBody">
+          <tr><td colspan="8" class="empty-state">Žiadne obchody. Načítaj dáta a spusti bota.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+<script>
+const API_KEY = 'd6so3h9r01qoqoiqq830d6so3h9r01qoqoiqq83g';
+const BASE = 'https://finnhub.io/api/v1';
+
+let chart = null;
+let prices = [], labels = [], ema9arr = [], ema21arr = [];
+let botInterval = null, isLoaded = false, botRunning = false;
+let hasPosition = false, posQty = 0, posEntryPrice = 0;
+let cash = 10000, startingCapital = 10000;
+let trades = [], buyCount = 0, sellCount = 0, tradeNo = 0;
+
+// ── CHART ──
+function initChart() {
+  const ctx = document.getElementById('priceChart').getContext('2d');
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: [], datasets: [
+      { label:'Cena', data:[], borderColor:'#00d4aa', backgroundColor:'rgba(0,212,170,0.07)', borderWidth:2, pointRadius:0, tension:0.3, fill:true, order:1 },
+      { label:'EMA 9', data:[], borderColor:'#00d4aa', borderWidth:1.5, pointRadius:0, tension:0.4, borderDash:[3,3], fill:false, order:2 },
+      { label:'EMA 21', data:[], borderColor:'#0099ff', borderWidth:1.5, pointRadius:0, tension:0.4, borderDash:[6,3], fill:false, order:3 }
+    ]},
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      plugins:{
+        legend:{ labels:{ color:'#5a7190', font:{ family:'Space Mono', size:10 }, boxWidth:18 } },
+        tooltip:{ backgroundColor:'#0e1420', borderColor:'#1e2d42', borderWidth:1, titleColor:'#5a7190', bodyColor:'#e8f0fe',
+          callbacks:{ label: c => ` ${c.dataset.label}: $${c.parsed.y?.toFixed(2)}` } }
+      },
+      scales:{
+        x:{ grid:{ color:'rgba(30,45,66,0.5)' }, ticks:{ color:'#5a7190', font:{ family:'Space Mono', size:9 }, maxTicksLimit:10 } },
+        y:{ grid:{ color:'rgba(30,45,66,0.5)' }, ticks:{ color:'#5a7190', font:{ family:'Space Mono', size:9 }, callback: v=>'$'+v.toFixed(2) }, position:'right' }
+      }
+    }
+  });
+}
+
+// ── EMA ──
+function calcEMA(data, period) {
+  if (data.length < period) return new Array(data.length).fill(null);
+  const k = 2 / (period + 1);
+  let ema = new Array(data.length).fill(null);
+  let sum = 0;
+  for (let i = 0; i < period; i++) sum += data[i];
+  ema[period-1] = sum / period;
+  for (let i = period; i < data.length; i++) ema[i] = data[i] * k + ema[i-1] * (1-k);
+  return ema;
+}
+
+// ── LOAD DATA ──
+async function loadData() {
+  const symbol = document.getElementById('symbolSel').value;
+  const resolution = document.getElementById('intervalSel').value;
+  cash = parseFloat(document.getElementById('capitalInput').value) || 10000;
+  startingCapital = cash;
+
+  const btn = document.getElementById('loadBtn');
+  btn.innerHTML = '<span class="spinner"></span>Načítavam...';
+  btn.disabled = true;
+
+  // Time range: last 6 months
+  const to = Math.floor(Date.now() / 1000);
+  const from = to - 60 * 60 * 24 * 180; // 180 days
+
+  const url = `${BASE}/stock/candle?symbol=${symbol}&resolution=${resolution}&from=${from}&to=${to}&token=${API_KEY}`;
+
+  try {
+    const res = await fetch(url);
+    const json = await res.json();
+
+    if (json.s !== 'ok' || !json.c || json.c.length === 0) {
+      throw new Error('Žiadne dáta. Skontroluj symbol alebo API kľúč.');
+    }
+
+    prices = json.c; // close prices
+    labels = json.t.map(ts => {
+      const d = new Date(ts * 1000);
+      return resolution === 'D'
+        ? d.toLocaleDateString('sk-SK', {month:'short', day:'numeric'})
+        : d.toLocaleTimeString('sk-SK', {hour:'2-digit', minute:'2-digit'});
+    });
+
+    ema9arr = calcEMA(prices, 9);
+    ema21arr = calcEMA(prices, 21);
+
+    chart.data.labels = labels;
+    chart.data.datasets[0].data = prices;
+    chart.data.datasets[1].data = ema9arr;
+    chart.data.datasets[2].data = ema21arr;
+    chart.update('none');
+
+    const lastPrice = prices[prices.length-1];
+    const prevPrice = prices[prices.length-2] || lastPrice;
+    const chgAbs = (lastPrice - prevPrice).toFixed(2);
+    const chgPct = ((lastPrice - prevPrice) / prevPrice * 100).toFixed(2);
+
+    document.getElementById('curPrice').textContent = '$' + lastPrice.toFixed(2);
+    document.getElementById('priceChg').textContent = (chgAbs >= 0 ? '+' : '') + chgAbs + ' (' + (chgAbs >= 0 ? '+' : '') + chgPct + '%)';
+    document.getElementById('priceChg').className = 'stat-sub ' + (parseFloat(chgAbs) >= 0 ? 'up' : 'down');
+    document.getElementById('chartTitle').textContent = `${symbol} — ${resolution === 'D' ? '1D' : resolution + 'min'}`;
+
+    updateEMAStats();
+    computeSignal();
+    updateBalanceUI();
+    isLoaded = true;
+    document.getElementById('startBtn').disabled = false;
+    setStatus('ready');
+    btn.textContent = '✓ Načítané';
+    setTimeout(() => { btn.textContent = 'Obnoviť'; btn.disabled = false; }, 2000);
+
+  } catch(e) {
+    btn.textContent = 'Chyba — skús znovu';
+    btn.disabled = false;
+    alert('Chyba: ' + e.message);
+  }
+}
+
+// ── FRESH PRICE (quote endpoint) ──
+async function fetchQuote(symbol) {
+  const url = `${BASE}/quote?symbol=${symbol}&token=${API_KEY}`;
+  const res = await fetch(url);
+  const json = await res.json();
+  return json.c; // current price
+}
+
+// ── SIGNAL ──
+function computeSignal() {
+  const n = prices.length;
+  if (!ema9arr[n-1] || !ema21arr[n-1]) return 'HOLD';
+  const e9 = ema9arr[n-1], e21 = ema21arr[n-1];
+  const e9p = ema9arr[n-2] || e9, e21p = ema21arr[n-2] || e21;
+  let signal = 'HOLD', reason = '';
+  if (e9p <= e21p && e9 > e21)      { signal = 'BUY';  reason = 'EMA9 prekrižuje EMA21 nahor ↑'; }
+  else if (e9p >= e21p && e9 < e21) { signal = 'SELL'; reason = 'EMA9 prekrižuje EMA21 nadol ↓'; }
+  else if (e9 > e21)                 { signal = 'BUY';  reason = `EMA9 (${e9.toFixed(2)}) nad EMA21 (${e21.toFixed(2)})`; }
+  else if (e9 < e21)                 { signal = 'SELL'; reason = `EMA9 (${e9.toFixed(2)}) pod EMA21 (${e21.toFixed(2)})`; }
+  else                               { reason = 'EMA9 = EMA21, čakám...'; }
+  document.getElementById('sigVal').textContent = signal;
+  document.getElementById('sigVal').className = 'signal-value ' + signal;
+  document.getElementById('sigReason').textContent = reason;
+  return signal;
+}
+
+function updateEMAStats() {
+  const n = prices.length;
+  const e9 = ema9arr[n-1], e21 = ema21arr[n-1];
+  if (e9 && e21) {
+    document.getElementById('emaVals').textContent = e9.toFixed(2) + ' / ' + e21.toFixed(2);
+    document.getElementById('emaCross').textContent = e9 > e21 ? '↑ Bullish trend' : '↓ Bearish trend';
+    document.getElementById('emaCross').className = 'stat-sub ' + (e9 > e21 ? 'up' : 'down');
+  }
+}
+
+// ── BOT ──
+async function startBot() {
+  if (!isLoaded) return;
+  botRunning = true;
+  document.getElementById('startBtn').disabled = true;
+  document.getElementById('stopBtn').disabled = false;
+  setStatus('running');
+  await botTick();
+  botInterval = setInterval(botTick, 60000);
+}
+
+function stopBot() {
+  botRunning = false;
+  if (botInterval) { clearInterval(botInterval); botInterval = null; }
+  document.getElementById('startBtn').disabled = false;
+  document.getElementById('stopBtn').disabled = true;
+  setStatus('ready');
+}
+
+async function botTick() {
+  if (!botRunning) return;
+  const symbol = document.getElementById('symbolSel').value;
+
+  try {
+    // Get fresh price from quote endpoint
+    const livePrice = await fetchQuote(symbol);
+    if (!livePrice || livePrice === 0) return;
+
+    // Append to prices array and recalculate EMA
+    const now = new Date().toLocaleTimeString('sk-SK', {hour:'2-digit', minute:'2-digit'});
+    prices.push(livePrice);
+    labels.push(now);
+    if (prices.length > 300) { prices.shift(); labels.shift(); }
+
+    ema9arr = calcEMA(prices, 9);
+    ema21arr = calcEMA(prices, 21);
+
+    chart.data.labels = labels;
+    chart.data.datasets[0].data = prices;
+    chart.data.datasets[1].data = ema9arr;
+    chart.data.datasets[2].data = ema21arr;
+    chart.update('none');
+
+    document.getElementById('curPrice').textContent = '$' + livePrice.toFixed(2);
+    updateEMAStats();
+
+    const signal = computeSignal();
+    const positionPct = parseFloat(document.getElementById('posSize').value);
+
+    if (signal === 'BUY' && !hasPosition) {
+      const invest = cash * positionPct;
+      if (invest < livePrice) return;
+      const qty = Math.floor(invest / livePrice);
+      const cost = qty * livePrice;
+      cash -= cost; hasPosition = true; posQty = qty; posEntryPrice = livePrice;
+      buyCount++; tradeNo++;
+      addTrade(tradeNo, symbol, 'buy', livePrice, qty, cost, null);
+      updateBalanceUI(); updateTradeStats();
+    } else if (signal === 'SELL' && hasPosition) {
+      const revenue = posQty * livePrice;
+      const pnl = revenue - (posQty * posEntryPrice);
+      cash += revenue; hasPosition = false; sellCount++; tradeNo++;
+      addTrade(tradeNo, symbol, 'sell', livePrice, posQty, revenue, pnl);
+      posQty = 0; posEntryPrice = 0;
+      updateBalanceUI(); updateTradeStats();
+    }
+
+    // Update position chip
+    if (hasPosition) {
+      const unrealized = posQty * (livePrice - posEntryPrice);
+      document.getElementById('posChip').className = 'position-chip long';
+      document.getElementById('posChip').textContent = `🟢 LONG ${posQty} ks (${unrealized >= 0 ? '+' : ''}$${unrealized.toFixed(2)})`;
+    } else {
+      document.getElementById('posChip').className = 'position-chip';
+      document.getElementById('posChip').textContent = '⬜ Žiadna pozícia';
+    }
+
+    updateBalanceUI();
+  } catch(e) { console.warn('Bot tick error:', e); }
+}
+
+// ── UI ──
+function updateBalanceUI() {
+  const price = prices.length ? prices[prices.length-1] : 0;
+  const posValue = hasPosition ? posQty * price : 0;
+  const total = cash + posValue;
+  const pnl = total - startingCapital;
+  document.getElementById('totalVal').textContent = '$' + total.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+  document.getElementById('cashVal').textContent = '$' + cash.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+  document.getElementById('posVal').textContent = '$' + posValue.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+  const pnlEl = document.getElementById('totalPnl');
+  pnlEl.textContent = (pnl >= 0 ? '+' : '') + '$' + pnl.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+  pnlEl.className = 'balance-value ' + (pnl >= 0 ? 'up' : 'down');
+}
+
+function updateTradeStats() {
+  document.getElementById('tradeTotal').textContent = trades.length;
+  document.getElementById('tradeSplit').textContent = buyCount + ' BUY · ' + sellCount + ' SELL';
+  const closed = trades.filter(t => t.type === 'sell' && t.pnl !== null);
+  if (closed.length > 0) {
+    const wins = closed.filter(t => t.pnl >= 0).length;
+    const wr = Math.round(wins / closed.length * 100);
+    const avgPnl = closed.reduce((s,t) => s + t.pnl, 0) / closed.length;
+    document.getElementById('winRate').textContent = wr + '%';
+    document.getElementById('winRate').className = 'stat-value ' + (wr >= 50 ? 'up' : 'down');
+    document.getElementById('avgPnl').textContent = 'Priem. P&L: ' + (avgPnl >= 0 ? '+' : '') + '$' + avgPnl.toFixed(2);
+  }
+}
+
+function addTrade(no, symbol, type, price, qty, value, pnl) {
+  const time = new Date().toLocaleTimeString('sk-SK');
+  trades.unshift({ no, time, symbol, type, price, qty, value, pnl });
+  const body = document.getElementById('tradesBody');
+  const pnlStr = pnl !== null
+    ? `<span class="${pnl >= 0 ? 'up' : 'down'}">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</span>`
+    : '<span style="color:var(--muted)">—</span>';
+  const row = document.createElement('tr');
+  row.innerHTML = `<td style="color:var(--muted)">#${no}</td><td>${time}</td><td style="color:var(--accent)">${symbol}</td><td><span class="tag ${type}">${type.toUpperCase()}</span></td><td>$${price.toFixed(2)}</td><td>${qty}</td><td>$${value.toFixed(2)}</td><td>${pnlStr}</td>`;
+  const empty = body.querySelector('td[colspan]');
+  if (empty) empty.closest('tr').remove();
+  body.insertBefore(row, body.firstChild);
+}
+
+function setStatus(state) {
+  const dot = document.getElementById('statusDot');
+  const txt = document.getElementById('statusText');
+  if (state === 'running')     { dot.className = 'dot live'; txt.textContent = 'BOT BEŽÍ'; }
+  else if (state === 'ready')  { dot.className = 'dot warn'; txt.textContent = 'PRIPRAVENÝ'; }
+  else                         { dot.className = 'dot';      txt.textContent = 'OFFLINE'; }
+}
+
+function clearTrades() {
+  trades = []; buyCount = 0; sellCount = 0; tradeNo = 0;
+  document.getElementById('tradesBody').innerHTML = '<tr><td colspan="8" class="empty-state">Žiadne obchody.</td></tr>';
+  document.getElementById('tradeTotal').textContent = '0';
+  document.getElementById('tradeSplit').textContent = '0 BUY · 0 SELL';
+  document.getElementById('winRate').textContent = '—';
+  document.getElementById('avgPnl').textContent = 'Priem. P&L: —';
+}
+
+function resetAccount() {
+  stopBot();
+  cash = parseFloat(document.getElementById('capitalInput').value) || 10000;
+  startingCapital = cash;
+  hasPosition = false; posQty = 0; posEntryPrice = 0;
+  clearTrades(); updateBalanceUI();
+  document.getElementById('posChip').className = 'position-chip';
+  document.getElementById('posChip').textContent = '⬜ Žiadna pozícia';
+}
+
+window.onload = () => { initChart(); setTimeout(loadData, 300); };
+</script>
+</body>
+</html>
